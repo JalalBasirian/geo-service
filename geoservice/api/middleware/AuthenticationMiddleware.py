@@ -5,6 +5,8 @@ from integration.service.api_description_service import find_api_description
 from integration.service.channel_service import find_channel
 from log.logger import logger
 from fastapi import status
+import hashlib
+
 
 class AuthenticationMiddleware:
 
@@ -14,9 +16,9 @@ class AuthenticationMiddleware:
         pass
 
     async def __call__(self, request: Request, call_next):
-        self.log.debug("mock middleware called")
+        self.log.debug("auth middleware called")
         headers = request.headers
-        self.log.debug("headers are "+ f"{headers}")
+        self.log.debug("headers are " + f"{headers}")
 
         auth_header = None
         auth_type = None
@@ -28,15 +30,13 @@ class AuthenticationMiddleware:
                 if auth_header.lower().startswith("basic"):
                     auth_type = "BASIC"
                     auth_header = auth_header[5:len(auth_header)].strip()
-                
+
             auth_header_split = auth_header.split(":")
             channel_id = auth_header_split[0]
             request.scope["channel_id"] = channel_id
             auth_key = auth_header_split[1]
         except (KeyError, IndexError):
             pass
-
-        self.log.debug(f"auth_header: {auth_header}")
 
         api_key = request.url.path
         if api_key.endswith("/"):
@@ -45,7 +45,8 @@ class AuthenticationMiddleware:
         api_desc = find_api_description(api_key)
 
         if not api_desc or not api_desc.is_enabled:
-            self.log.debug(f"service is not available with api_key: {api_key}, api_desc: {api_desc}")
+            self.log.debug(
+                f"service is not available with api_key: {api_key}, api_desc: {api_desc}")
             return JSONResponse(content={'status': 'service is not available (enabled)'},
                                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
 
@@ -56,6 +57,8 @@ class AuthenticationMiddleware:
             self.log.debug("trying to authenticate")
             try:
                 channel_id = int(channel_id)
+            except ValueError:
+                channel_id = None
             except TypeError:
                 channel_id = None
 
@@ -63,10 +66,17 @@ class AuthenticationMiddleware:
             if not auth_header or \
                     not auth_key or \
                     not channel or \
-                    channel.auth_key != auth_key.strip():
+                    channel.auth_key != hashlib.md5(f"[{channel_id}:{auth_key.strip()}]".encode()).hexdigest():
 
-                self.log.debug(f"authentication failed for auth_header: {auth_header}, channel_id: {channel_id}, channel: {channel}")
-                return JSONResponse(content={'status': 'not authorized'},
+                self.log.debug(
+                    f"authentication failed for auth_header: {auth_header}, channel_id: {channel_id}, channel: {channel}")
+                response = {
+                    "header": {
+                        "result_code": status.HTTP_401_UNAUTHORIZED,
+                        "result_message": 'not authorized'
+                    }
+                }
+                return JSONResponse(content=response,
                                     status_code=status.HTTP_401_UNAUTHORIZED)
 
         return await call_next(request)

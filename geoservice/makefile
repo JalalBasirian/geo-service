@@ -15,8 +15,11 @@ buildapprun:
 build: buildbase buildapp
 
 runapp:
-	docker run -i -p 8001:8001 --env-file ./geoservice/docker/env.app.list -t geoubuntu_app:latest /bin/bash
+	docker run -i -p 9001:9001 --env-file ./geoservice/docker/env.app.list -t geoubuntu_app:latest /bin/bash
 
 rundispatcher:
-	docker run -i -p 8000:8000 --env-file ./geoservice/docker/env.dispatcher.list -t geoubuntu_app:latest  /bin/bash
+	docker run -i -p 9000:9000 --env-file ./geoservice/docker/env.dispatcher.list -t geoubuntu_app:latest  /bin/bash
 
+
+dockercp:
+	for i in `docker ps | grep geoubuntu_app | awk '{print $1}'`; do echo "cp to $i"; docker cp . $i:/opt/app; done

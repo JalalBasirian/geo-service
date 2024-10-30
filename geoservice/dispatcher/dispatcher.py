@@ -11,19 +11,39 @@ from log.logger import logger
 app_mode = os.environ["app_mode"]
 log = logger()
 
+
 def dispatch(dispatch_event):
     def decorator(fn):
         @wraps(fn)
         async def wrapper(*args, **kwargs):
             if app_mode == "dispatcher":
                 request = kwargs['request']
+                method = request.method
+                body = None
+                if method and str(method).upper() == "POST":
+                    body = await request.json()
+
                 request_url = request.url
+                headers_binary = dict(request["headers"])
+                authorization_header = ""
+                try:
+                    authorization_header = headers_binary["authorization".encode(
+                    )].decode()
+                except KeyError as e:
+                    log.debug(f"KeyError: {e}")
+
                 state_code = dispatch_event.fire({"data": kwargs})
                 log.debug(f"dispatch key: {state_code}")
                 service_ip = get_state_ip_by_code(state_code)
-                redirect_url = f"http://{service_ip}{request.url.path}/?{request.query_params}"
-                log.debug(f"redirecting from url: {request_url} to {redirect_url}")
-                result = call_service_provider(str(redirect_url))
+                redirect_url = f"http://{service_ip}{request.url.path}"
+                if request.query_params:
+                    redirect_url = redirect_url + f"/?{request.query_params}"
+                log.debug(
+                    f"redirecting from url: {request_url} to {redirect_url}")
+                result = call_service_provider(url=str(redirect_url),
+                                               headers={
+                                                   "Authorization": authorization_header},
+                                               body=body)
                 return result
             else:
                 return fn(*args, **kwargs)
@@ -32,13 +52,18 @@ def dispatch(dispatch_event):
     return decorator
 
 
-def call_service_provider(url):
-    log.debug("call service begin")
-    response = requests.get(url)
+def call_service_provider(url, headers=None, body=None):
+    response = None
+    if body:
+        log.debug(f"call service begin [POST]")
+        print(headers, body)
+        response = requests.post(url, headers=headers, json=body)
+    else:
+        log.debug(f"call service begin [GET]")
+        response = requests.get(url, headers=headers)
+
     log.debug(f"service called, status code: {response.status_code}")
-    if response.status_code == 200:
-        # return json.loads(response.content.decode('utf-8'))
-        return JSONResponse(content=json.loads(response.content.decode('utf-8')))
+    return JSONResponse(content=json.loads(response.content.decode('utf-8')), status_code=response.status_code)
 
 
 def decorate_api_functions(module):

@@ -11,9 +11,12 @@ from geoservice.model.entity.Parcel import *
 from geoservice.service.util import process_label
 from geoservice.service.deed_service import find_deed
 from geoservice.util.common_util import get_state_name_by_code
-
 from geoservice.exception.common import ErrorCodes
 from geoservice.exception.service_exception import ServiceException
+from log.logger import logger
+
+
+log = logger()
 
 
 QUERIES = {
@@ -28,6 +31,8 @@ QUERIES = {
         WHERE 
         DEL_USER is null and DEL_DATE is null and
         TXT_LABLE like '%*' and
+        TXT_LABLE like '%DD%' and -- exclude malformed labels
+        VALIDATE1 = '1' and
         SDO_CONTAINS(c.POLY,
                 sdo_geometry('POINT ({x} {y})', {srid})
         ) = 'TRUE'
@@ -44,11 +49,13 @@ QUERIES = {
         WHERE 
             DEL_USER is null and DEL_DATE is null and
             LABLE1 like '%*' and
+            LABLE1 like '%DD%' and -- exclude malformed labels
             LABLE1 not like '%TASBITED%' and
             poly is not null and -- there might be multiple records for a shape but the one with poly is needed
             SDO_CONTAINS(s.POLY,
                     sdo_geometry('POINT ({x} {y})', {srid})
             ) = 'TRUE' and
+            VALIDATE1 = '1' and
             ROWNUM = 1 -- to limit to the one polygon which is surrounded (the polygon with ring scenario)
     """,
 
@@ -76,6 +83,8 @@ QUERIES = {
                             )
                 , 'mask=inside+touch+OVERLAPBDYINTERSECT+coveredby') = 'TRUE'
             and TXT_LABLE like '%*'
+            and TXT_LABLE like '%DD%' -- exclude malformed labels
+            and VALIDATE1 = '1'
             and DEL_USER is null and DEL_DATE is null
     """,
 
@@ -94,6 +103,8 @@ QUERIES = {
                 , 'mask=inside+touch+OVERLAPBDYINTERSECT+coveredby') = 'TRUE'
             and LABLE1 like '%*'
             and LABLE1 not like '%TASBITED%'
+            and LABLE1 like '%DD%' -- exclude malformed labels
+            and VALIDATE1 = '1'
             and DEL_USER is null and DEL_DATE is null
     """,
     
@@ -173,7 +184,7 @@ def find_polygon_by_centroid(centroid: Point_T) -> Parcel:
             it must be investigated further.
             for now lets not raise exception and return centroid poly which most probably is surrounded by shape poly
         """
-        print(f"multiple polygons found for centroid {centroid}. ignoring shape!")
+        log.warning(f"multiple polygons found for centroid {centroid}. ignoring shape!")
         shape_parcel.polygon = None
         # raise ServiceException(ErrorCodes.MULTIPLE_PARCEL_FOUND)
     else:
